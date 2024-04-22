@@ -1,5 +1,8 @@
-import pyabpoa as pa
 import polars as pl
+import numpy as np
+
+from biotite.sequence.align import SubstitutionMatrix
+from biotite.sequence import GeneralSequence, Alphabet
 
 
 def format_strdec_data(input_file: str) -> pl.DataFrame:
@@ -36,8 +39,14 @@ def main():
     df_verkko = df_verkko.with_columns(pl.col("mon_id").replace(mid_mappings))
     df_hifiasm = df_hifiasm.with_columns(pl.col("mon_id").replace(mid_mappings))
 
-    seq_verkko = "".join(df_verkko.get_column("mon_id").to_list())
-    seq_hifiasm = "".join(df_hifiasm.get_column("mon_id").to_list())
+    seq_verkko = "".join(df_verkko.get_column("monomer").to_list())
+    seq_hifiasm = "".join(df_hifiasm.get_column("monomer").to_list())
+
+    mapping_alphabet = Alphabet(mid_mappings.keys())
+    matrix = SubstitutionMatrix(mapping_alphabet, mapping_alphabet, np.identity(len(mapping_alphabet)))
+
+    print(matrix)
+    GeneralSequence()
 
 
 
