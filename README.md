@@ -3,7 +3,7 @@ Use hifiasm assembly, verkko assembly, and misassemblies to produce the longest,
 
 
 ### Method
-Use Needleman Wunsch global alignment.
-* Must be same ID and percentage.
-Iteratively combine alignments.
-Subseq assemblies and join.
+* Run stringdecomposer on assembly.
+* Assign id based on monomer ID and percentage identity.
+* Perform multiple sequence alignment on IDs. Global alignment.
+* Subseq assemblies and join.
