@@ -3,3 +3,6 @@ data/summary.tsv filter=lfs diff=lfs merge=lfs -text
 data/verkko.tsv filter=lfs diff=lfs merge=lfs -text
 data/230805_Parent_cen_fixes.xlsx filter=lfs diff=lfs merge=lfs -text
 data/expected.tsv filter=lfs diff=lfs merge=lfs -text
+data/mother-verkko.csv filter=lfs diff=lfs merge=lfs -text
+data/mother-hifiasm2.csv filter=lfs diff=lfs merge=lfs -text
+data/mother-hifiasm.csv filter=lfs diff=lfs merge=lfs -text

@@ -1,6 +1,5 @@
 import polars as pl
 import numpy as np
-import bidict as bd
 import biotite.sequence as seq
 import biotite.sequence.align as align
 
@@ -35,9 +34,7 @@ def main():
     # SAFE: No duplicates. ValueErrors if above 1,114,111 limit.
     # https://docs.python.org/3/library/functions.html#chr
     assert len(mon_ids) < 1_114_111, "Too many monomer IDs"
-    mid_mappings = bd.bidict(
-        {mid: chr(i) if i != 45 else chr(1_114_111) for i, mid in enumerate(mon_ids)}
-    )
+    mid_mappings = {mid: chr(i) if i != 45 else chr(1_114_111) for i, mid in enumerate(mon_ids)}
 
     dfs = [
         df_verkko.with_columns(pl.col("mon_id").replace(mid_mappings)),
@@ -86,23 +83,29 @@ def main():
 
     df_concensus_breaks = (df_concensus
         .with_columns(
-            breaks=pl.col("ctg").rle_id()
+            breaks=pl.col("ctg").rle_id(),
+            # ort=pl.when(pl.col("mon").str.contains("'")).then(pl.lit("-")).otherwise(pl.lit("+"))
         ))
     break_map = dict(df_concensus_breaks.select("breaks", "ctg").unique().iter_rows())
+    # TODO: Add orientation
     df_summary = (
         df_concensus_breaks
         .group_by("breaks")
         .agg(
             start=pl.col("start").min(),
             stop=pl.col("stop").max(),
-            ort=pl.col("mon").str.contains("'")
         )
         .with_columns(
-            ctg=pl.col("breaks").replace(break_map)
+            ctg=pl.col("breaks").replace(break_map),
+            length=pl.col("stop")-pl.col("start")
         )
+        .sort(by="breaks")
         .drop("breaks")
-        .sort(by="start")
-        .select("ctg", "start", "stop", "ort")
+        .with_columns(
+            asm_start=pl.col("length").cum_sum().shift(1).fill_null(0),
+            asm_stop=pl.col("length").cum_sum()
+        )
+        .select("ctg", "start", "stop", "asm_start", "asm_stop", "length")
     )
     breakpoint()
 
