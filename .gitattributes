@@ -1,8 +1,8 @@
-data/hifiasm.tsv filter=lfs diff=lfs merge=lfs -text
-data/summary.tsv filter=lfs diff=lfs merge=lfs -text
-data/verkko.tsv filter=lfs diff=lfs merge=lfs -text
 data/230805_Parent_cen_fixes.xlsx filter=lfs diff=lfs merge=lfs -text
-data/expected.tsv filter=lfs diff=lfs merge=lfs -text
-data/mother-verkko.csv filter=lfs diff=lfs merge=lfs -text
-data/mother-hifiasm2.csv filter=lfs diff=lfs merge=lfs -text
-data/mother-hifiasm.csv filter=lfs diff=lfs merge=lfs -text
+data/stringdecomposer/mother-h1tg000006l.tsv filter=lfs diff=lfs merge=lfs -text
+data/stringdecomposer/mother-h1tg000045l.tsv filter=lfs diff=lfs merge=lfs -text
+data/stringdecomposer/father-contig-0001173.tsv filter=lfs diff=lfs merge=lfs -text
+data/stringdecomposer/father-h2tg000036l.tsv filter=lfs diff=lfs merge=lfs -text
+data/stringdecomposer/mother-contig-0002362.tsv filter=lfs diff=lfs merge=lfs -text
+data/summary/father-summary.tsv filter=lfs diff=lfs merge=lfs -text
+data/summary/mother-summary.tsv filter=lfs diff=lfs merge=lfs -text

@@ -1,3 +1,5 @@
+import sys
+import argparse
 import polars as pl
 import numpy as np
 import biotite.sequence as seq
@@ -12,22 +14,40 @@ def format_strdec_data(input_file: str) -> pl.DataFrame:
             has_header=False,
             new_columns=["ctg", "monomer", "start", "stop", "identity"],
         )
-        .with_columns(mon_id=pl.concat_str([pl.col("monomer", "identity")], separator="_"))
+        .with_columns(
+            ctg_name_coords=pl.col("ctg").str.split_exact(by=":", n=1)
+        )
+        .unnest("ctg_name_coords")
+        .rename({"field_0": "ctg_name", "field_1": "coords"})
+        .with_columns(
+            coord_pair=pl.col("coords").str.split_exact(by="-", n=1)
+        )
+        .unnest("coord_pair")
+        .rename({"field_0": "ctg_start", "field_1": "ctg_stop"})
+        .cast({"ctg_start": pl.Int64, "ctg_stop": pl.Int64})
+        .with_columns(
+            # TODO: Check if this is right if aligned in - ort.
+            # start=pl.col("start") + pl.col("ctg_start"),
+            # stop=pl.col("stop") + pl.col("ctg_start"),
+            mon_id=pl.concat_str([pl.col("monomer", "identity")], separator="_")
+        )
+        .select("ctg", "monomer", "start", "stop", "identity", "mon_id")
         .collect()
     )
 
 
 def main():
-    df_verkko = format_strdec_data("data/verkko.tsv")
-    df_hifiasm = format_strdec_data("data/hifiasm.tsv")
-    df_exp = pl.read_csv(
-        "data/expected.tsv",
-        separator="\t",
-        has_header=False,
-        new_columns=["ctg", "monomer", "start", "stop", "identity", "len"],
-    )
+    ap = argparse.ArgumentParser(description="")
+    ap.add_argument("-i", "--infiles", nargs="+", help="Input StringDecomposer outputs.")
+    ap.add_argument("-s", "--summary", default="summary.tsv", help="Coordinate summary")
+    ap.add_argument("-o", "--outfile", default=sys.stdout, type=argparse.FileType("wt"), help="Consensus StringDecomposer output.")
+
+    args = ap.parse_args()
+
+    dfs = [format_strdec_data(f) for f in args.infiles]
+
     mon_ids = pl.concat(
-        [df_verkko.get_column("mon_id"), df_hifiasm.get_column("mon_id")]
+        [df.get_column("mon_id") for df in dfs]
     ).unique()
 
     # Convert each id to a single character.
@@ -36,13 +56,13 @@ def main():
     assert len(mon_ids) < 1_114_111, "Too many monomer IDs"
     mid_mappings = {mid: chr(i) if i != 45 else chr(1_114_111) for i, mid in enumerate(mon_ids)}
 
-    dfs = [
-        df_verkko.with_columns(pl.col("mon_id").replace(mid_mappings)),
-        df_hifiasm.with_columns(pl.col("mon_id").replace(mid_mappings))
+    dfs_mod = [
+        df.with_columns(pl.col("mon_id").replace(mid_mappings))
+        for df in dfs
     ]
     seqs = [
         "".join(df.get_column("mon_id").to_list())
-        for df in dfs
+        for df in dfs_mod
     ]
 
     mapping_alphabet = seq.Alphabet(mid_mappings.values())
@@ -51,18 +71,18 @@ def main():
         mapping_alphabet, mapping_alphabet, np.identity(len(mapping_alphabet))
     )
 
-    ali, order, tree, dst_mtx = align.align_multiple(
+    aln, order, tree, dst_mtx = align.align_multiple(
         [
             seq.GeneralSequence(alphabet=mapping_alphabet, sequence=s)
             for s in seqs
         ],
         matrix,
-        # Don't penalize gaps.
-        gap_penalty=(0, 0),
+        # Heavily penalize opening multiple gaps. Allow extensions. Try to keep contigs together.
+        gap_penalty=(-30, 0),
         terminal_penalty=False,
     )
     concensus_rows = []
-    for trace in ali.trace:
+    for trace in aln.trace:
         for i, seq_idx in enumerate(trace):
             if seq_idx != -1:
                 row = dfs[i].row(seq_idx)
@@ -107,8 +127,13 @@ def main():
         )
         .select("ctg", "start", "stop", "asm_start", "asm_stop", "length")
     )
-    breakpoint()
 
+    df_summary.write_csv(
+        args.summary, separator="\t", include_header=True
+    )
+    df_concensus.write_csv(
+        args.outfile, separator="\t", include_header=False
+    )
 
 
 if __name__ == "__main__":
