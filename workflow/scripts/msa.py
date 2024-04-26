@@ -78,20 +78,32 @@ def main():
         ],
         matrix,
         # Heavily penalize opening multiple gaps. Allow extensions. Try to keep contigs together.
-        gap_penalty=(-30, 0),
+        gap_penalty=(-5, 0),
         terminal_penalty=False,
     )
     concensus_rows = []
+
+    seq_i = 0
     for trace in aln.trace:
-        for i, seq_idx in enumerate(trace):
-            if seq_idx != -1:
-                row = dfs[i].row(seq_idx)
-                # TODO: Check for misassembly.
-                concensus_rows.append(row)
-                break
-            else:
-                continue
-    
+        matches = np.where(trace != -1)[0]
+        seq_i_idx = np.where(matches == seq_i)[0]
+        
+        # Check if current i.
+        if len(seq_i_idx) != 0:
+            seq_i = seq_i_idx[0]
+        # Just take first one
+        elif len(matches) != 0:
+            seq_i = matches[0]
+        else:
+            continue
+        try:
+            trace_idx = trace[seq_i]
+        except IndexError:
+            breakpoint()
+        row = dfs[seq_i].row(trace_idx)
+        # TODO: Check for misassembly.
+        concensus_rows.append(row)
+
     df_concensus = (
         pl.LazyFrame(
             concensus_rows,
