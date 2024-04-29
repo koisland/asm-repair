@@ -78,7 +78,7 @@ def main():
         ],
         matrix,
         # Heavily penalize opening multiple gaps. Allow extensions. Try to keep contigs together.
-        gap_penalty=(-5, 0),
+        gap_penalty=(-10, 0),
         terminal_penalty=False,
     )
     concensus_rows = []
@@ -88,18 +88,15 @@ def main():
         matches = np.where(trace != -1)[0]
         seq_i_idx = np.where(matches == seq_i)[0]
         
-        # Check if current i.
+        # Check if current i in matches. Keep longest contig as possible.
         if len(seq_i_idx) != 0:
-            seq_i = seq_i_idx[0]
+            seq_i = matches[seq_i_idx[0]]
         # Just take first one
         elif len(matches) != 0:
             seq_i = matches[0]
         else:
             continue
-        try:
-            trace_idx = trace[seq_i]
-        except IndexError:
-            breakpoint()
+        trace_idx = trace[seq_i]
         row = dfs[seq_i].row(trace_idx)
         # TODO: Check for misassembly.
         concensus_rows.append(row)
