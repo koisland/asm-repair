@@ -1,0 +1,57 @@
+# TODO: Reorient
+
+
+rule stringdecomposer:
+    input:
+        # chr21
+        monomers="data/monomers/chm13_{chr}_monomers.fa",
+        # HG03710_tig00000001
+        fa="data/hprc/sequence/{contig}.fa",
+    output:
+        "",
+    conda:
+        "../env/stringdecomposer.yaml"
+    benchmark:
+        "benchmarks/stringdecomposer.tsv"
+    log:
+        "logs/stringdecomposer.log",
+    shell:
+        """
+        stringdecomposer \
+        {input.fa} \
+        {input.monomers} \
+        --outfile {output} 2> {log}
+        """
+
+
+rule generate_concensus_coords:
+    input:
+        misassemblies="",
+        # List of misassemblies per contig.
+    output:
+        "",
+    shell:
+        ""
+
+
+rule extract_seq:
+    input:
+        "",
+    output:
+        "",
+    shell:
+        ""
+
+
+rule merge_seqs:
+    input:
+        "",
+    output:
+        "",
+    shell:
+        ""
+
+
+rule all:
+    input:
+        expand(rules.merge_seqs.output, chr=["chr21"]),
