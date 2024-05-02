@@ -1,0 +1,3 @@
+chromosome	group	path
+chr1	verkko	pg-chr1/chr1_misassemblies_verkko.bed
+chr1	hifiasm	pg-chr1/chr1_misassemblies_hifiasm.bed

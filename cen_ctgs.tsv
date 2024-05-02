@@ -1,0 +1,5 @@
+chromosome	orientation	group	path
+chr1	forward	verkko	pg-chr1/hifiasm_seq/chr1_contigs.fwd.ALR.fa
+chr1	forward	hifiasm	pg-chr1/verkko_seq/chr1_contigs.fwd.ALR.fa
+chr1	reverse	verkko	pg-chr1/hifiasm_seq/chr1_contigs.rev.ALR.fa
+chr1	reverse	hifiasm	pg-chr1/verkko_seq/chr1_contigs.rev.ALR.fa

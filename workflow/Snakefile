@@ -1,57 +1,69 @@
-# TODO: Reorient
+# TODO: Reorient input list of seqs
+
+# TODO: Run string decomposer
+
+import pandas as pd
 
 
-rule stringdecomposer:
+configfile: "config.yaml"
+
+
+CENS = pd.read_csv(config["contigs"], sep="\t")
+MISASSEMBLIES = pd.read_csv(config["misassemblies"], sep="\t")
+
+CHR = CENS["chromosome"].unique()
+ORT = CENS["orientation"].unique()
+GRP = CENS["group"].unique()
+
+print(CENS)
+print(MISASSEMBLIES)
+print(CHR, ORT, GRP)
+
+
+# Index fasta if not already done.
+rule index_fa:
     input:
-        # chr21
-        monomers="data/monomers/chm13_{chr}_monomers.fa",
-        # HG03710_tig00000001
-        fa="data/hprc/sequence/{contig}.fa",
+        CENS["path"],
     output:
-        "",
-    conda:
-        "../env/stringdecomposer.yaml"
-    benchmark:
-        "benchmarks/stringdecomposer.tsv"
-    log:
-        "logs/stringdecomposer.log",
+        [f"{fa}.fai" for fa in CENS["path"]],
     shell:
         """
-        stringdecomposer \
-        {input.fa} \
-        {input.monomers} \
-        --outfile {output} 2> {log}
+        for fa in {input}; do
+            samtools faidx ${{fa}}
+        done
         """
 
 
-rule generate_concensus_coords:
+rule group_inputs:
     input:
-        misassemblies="",
-        # List of misassemblies per contig.
+        fai=rules.index_fa.output,
+        cens_data=config["contigs"],
     output:
         "",
     shell:
-        ""
+        """
+        """
 
 
-rule extract_seq:
-    input:
-        "",
-    output:
-        "",
-    shell:
-        ""
-
-
-rule merge_seqs:
-    input:
-        "",
-    output:
-        "",
-    shell:
-        ""
-
-
-rule all:
-    input:
-        expand(rules.merge_seqs.output, chr=["chr21"]),
+# rule stringdecomposer:
+#     input:
+#         # chr21
+#         monomers="data/monomers/chm13_{chr}_monomers.fa",
+#         # HG03710_tig00000001
+#         fa="data/hprc/sequence/{contig}.fa",
+#     output:
+#         "",
+#     conda:
+#         "../env/stringdecomposer.yaml"
+#     benchmark:
+#         "benchmarks/stringdecomposer.tsv"
+#     log:
+#         "logs/stringdecomposer.log",
+#     shell:
+#         """
+#         stringdecomposer \
+#         {input.fa} \
+#         {input.monomers} \
+#         --outfile {output} 2> {log}
+#         """
+# # TODO: Generate config file.

@@ -1,0 +1,6 @@
+# Each sequence should be renamed to have chr and haplotype information in its label.
+# ex. sample_chr1_(h1|h2|haplotype1|haplotype2)ctg
+# ex. sample_chr10_(mat|pat)ctg
+# All fa should be indexed.
+contigs: "cen_ctgs.tsv"
+misassemblies: "cen_ctgs_misassemblies.tsv"
