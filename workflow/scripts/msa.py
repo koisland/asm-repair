@@ -8,29 +8,40 @@ import biotite.sequence.align as align
 from collections import defaultdict
 
 
+DEF_STRDEC_COLS = [
+    "cen",
+    "monomer",
+    "start",
+    "stop",
+    "identity",
+    "sec_monomer",
+    "sec_identity",
+    "homo_monomer",
+    "homo_identity",
+    "homo_sec_monomer",
+    "homo_sec_identity",
+    "reliability",
+]
+
+
 def format_strdec_data(
     input_file: str, *, orientation: str, contig_length: int
 ) -> pl.DataFrame:
-    return (
-        pl.scan_csv(
+    # Try full format and truncated format.
+    try:
+        lf = pl.scan_csv(
+            input_file, separator="\t", has_header=False, new_columns=DEF_STRDEC_COLS
+        )
+    except pl.exceptions.ShapeError:
+        lf = pl.scan_csv(
             input_file,
             separator="\t",
             has_header=False,
-            new_columns=[
-                "cen",
-                "monomer",
-                "start",
-                "stop",
-                "identity",
-                "sec_monomer",
-                "sec_identity",
-                "homo_monomer",
-                "homo_identity",
-                "homo_sec_monomer",
-                "homo_sec_identity",
-                "reliability",
-            ],
+            new_columns=DEF_STRDEC_COLS[0:5],
         )
+    return (
+        lf
+        # Extract centromere coordinates from contig name.
         .with_columns(
             cen_name_coords=pl.col("cen").str.split_exact(by=":", n=1),
             orientation=pl.lit(orientation),
@@ -42,6 +53,7 @@ def format_strdec_data(
         .unnest("coord_pair")
         .rename({"field_0": "cen_start", "field_1": "cen_stop"})
         .cast({"cen_start": pl.Int64, "cen_stop": pl.Int64})
+        # Merge monomer classification and its estimated sequence identity into an id.
         .with_columns(
             mon_id=pl.concat_str([pl.col("monomer", "identity")], separator="_")
         )
@@ -69,7 +81,14 @@ def main():
         help="Input StringDecomposer outputs as tsv file. Must contain path and orientation of contig. Each contig should also be labeled with start and stop coordinates.",
     )
     ap.add_argument(
-        "-s", "--summary", default="summary.tsv", help="Coordinate summary."
+        "-o",
+        "--outfile",
+        default=sys.stdout,
+        type=argparse.FileType("wt"),
+        help="Aligned and corrected sequence coordinates.",
+    )
+    ap.add_argument(
+        "-c", "--consensus", default=None, help="Concensus StringDecomposer output."
     )
     ap.add_argument(
         "--base_group",
@@ -77,15 +96,22 @@ def main():
         default=None,
     )
     ap.add_argument(
-        "-o",
-        "--outfile",
-        default=sys.stdout,
-        type=argparse.FileType("wt"),
-        help="Consensus StringDecomposer output.",
+        "--gap_open_penalty",
+        help="Gap opening penalty for alignment.",
+        type=int,
+        default=-50,
+    )
+    ap.add_argument(
+        "--gap_ext_penalty",
+        help="Gap extension penalty for alignment.",
+        type=int,
+        default=0,
     )
 
     args = ap.parse_args()
 
+    # Read input file with filename and metadata.
+    # Group is string to allow arbitrary name.
     df_cen_files = pl.read_csv(
         args.infiles,
         separator="\t",
@@ -131,12 +157,12 @@ def main():
     matrix = align.SubstitutionMatrix(
         mapping_alphabet, mapping_alphabet, np.identity(len(mapping_alphabet))
     )
-
+    # https://www.biotite-python.org/apidoc/biotite.sequence.align.align_multiple.html#biotite.sequence.align.align_multiple
     aln, order, tree, dst_mtx = align.align_multiple(
         [seq.GeneralSequence(alphabet=mapping_alphabet, sequence=s) for s in seqs],
         matrix,
         # Heavily penalize opening multiple gaps. Allow extensions. Try to keep contigs together.
-        gap_penalty=(-10, 0),
+        gap_penalty=(args.gap_open_penalty, args.gap_ext_penalty),
         terminal_penalty=False,
     )
     concensus_rows = []
@@ -205,26 +231,36 @@ def main():
         start=pl.when(pl.col("index") == 0)
         # Start of contig.
         .then(pl.lit(0))
+        # Adjust for orientation
+        .when(pl.col("orientation") == "-")
+        .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("start"))
         .otherwise(pl.col("start") + pl.col("cen_start").fill_null(0)),
         # Last row
         stop=pl.when(pl.col("index") == df_summary.shape[0] - 1)
         # Stop of contig.
         .then(pl.col("ctg_length"))
+        # Adjust for orientation
+        .when(pl.col("orientation") == "-")
+        .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("stop"))
         .otherwise(pl.col("stop") + pl.col("cen_start").fill_null(0)),
     )
 
-    df_summary = df_summary.with_columns(
-        length=pl.col("stop") - pl.col("start"),
-    ).with_columns(
-        asm_start=pl.col("length").cum_sum().shift(1).fill_null(0),
-        asm_stop=pl.col("length").cum_sum(),
+    df_summary = (
+        df_summary.with_columns(
+            length=pl.col("stop") - pl.col("start"),
+        )
+        .with_columns(
+            asm_start=pl.col("length").cum_sum().shift(1).fill_null(0),
+            asm_stop=pl.col("length").cum_sum(),
+        )
+        .select(
+            "cen", "start", "stop", "orientation", "asm_start", "asm_stop", "ctg_length"
+        )
     )
 
-    with pl.Config(tbl_cols=30):
-        breakpoint()
-
-    df_summary.write_csv(args.summary, separator="\t", include_header=True)
-    df_concensus.write_csv(args.outfile, separator="\t", include_header=False)
+    df_summary.write_csv(args.outfile, separator="\t", include_header=True)
+    if args.consensus:
+        df_concensus.write_csv(args.consensus, separator="\t", include_header=False)
 
 
 if __name__ == "__main__":
