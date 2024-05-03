@@ -1,1 +1,8 @@
 .~lock*
+output
+logs
+.snakemake
+data/platinum_genomes/hifiasm_seq/chr1_contigs.fwd.ALR.fa.fai
+data/platinum_genomes/hifiasm_seq/chr1_contigs.rev.ALR.fa
+data/platinum_genomes/verkko_seq/chr1_contigs.fwd.ALR.fa.fai
+data/platinum_genomes/verkko_seq/chr1_contigs.rev.ALR.fa.fai

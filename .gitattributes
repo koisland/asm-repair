@@ -53,3 +53,7 @@ data/platinum_genomes/K1463_2188_chr1_h1tg000037l:1-5911285.png filter=lfs diff=
 data/platinum_genomes/K1463_2188_chr1_pat-0000770:100604616-106605783.png filter=lfs diff=lfs merge=lfs -text
 data/platinum_genomes/K1463_2216_chr1_h2tg000108l:1-5840276.png filter=lfs diff=lfs merge=lfs -text
 data/platinum_genomes/K1463_2216_chr1_mat-0000012:120934619-126941533.png filter=lfs diff=lfs merge=lfs -text
+data/platinum_genomes/chr1_misassemblies_hifiasm.bed filter=lfs diff=lfs merge=lfs -text
+data/platinum_genomes/chr1_misassemblies_verkko.bed filter=lfs diff=lfs merge=lfs -text
+data/t21/summary/father-summary.tsv filter=lfs diff=lfs merge=lfs -text
+data/t21/summary/mother-summary.tsv filter=lfs diff=lfs merge=lfs -text

@@ -8,62 +8,116 @@ import pandas as pd
 configfile: "config.yaml"
 
 
-CENS = pd.read_csv(config["contigs"], sep="\t")
+CENS = pd.read_csv(config["cen_contigs"], sep="\t")
 MISASSEMBLIES = pd.read_csv(config["misassemblies"], sep="\t")
 
 CHR = CENS["chromosome"].unique()
 ORT = CENS["orientation"].unique()
 GRP = CENS["group"].unique()
 
-print(CENS)
-print(MISASSEMBLIES)
-print(CHR, ORT, GRP)
-
 
 # Index fasta if not already done.
-rule index_fa:
+rule index_cen_ctg_fa:
     input:
         CENS["path"],
     output:
         [f"{fa}.fai" for fa in CENS["path"]],
+    conda:
+        "env/general.yaml"
+    log:
+        "logs/index_cen_ctg_fa.log"
     shell:
         """
         for fa in {input}; do
-            samtools faidx ${{fa}}
+            ( samtools faidx ${{fa}} || true && touch ${{fa}}.fai ) 2> {log}
         done
         """
 
 
-rule group_inputs:
+checkpoint group_cen_contigs:
     input:
-        fai=rules.index_fa.output,
-        cens_data=config["contigs"],
+        fai=rules.index_cen_ctg_fa.output,
+        cen_contigs=config["cen_contigs"],
+        misassemblies=config["misassemblies"],
+        assembly_faidx=config["assembly_fai"]
     output:
-        "",
+        directory(os.path.join("output", "groups")),
+    conda:
+        "env/msa.yaml"
+    log:
+        "logs/group_cen_contigs.log"
     shell:
         """
+        python workflow/scripts/group_seq.py \
+        -i {input.cen_contigs} \
+        -m {input.misassemblies} \
+        -a {input.assembly_faidx} \
+        -o {output} 2> {log}
         """
 
 
-# rule stringdecomposer:
-#     input:
-#         # chr21
-#         monomers="data/monomers/chm13_{chr}_monomers.fa",
-#         # HG03710_tig00000001
-#         fa="data/hprc/sequence/{contig}.fa",
-#     output:
-#         "",
-#     conda:
-#         "../env/stringdecomposer.yaml"
-#     benchmark:
-#         "benchmarks/stringdecomposer.tsv"
-#     log:
-#         "logs/stringdecomposer.log",
-#     shell:
-#         """
-#         stringdecomposer \
-#         {input.fa} \
-#         {input.monomers} \
-#         --outfile {output} 2> {log}
-#         """
-# # TODO: Generate config file.
+rule reorient_contigs_for_strdec:
+    input:
+        os.path.join(str(rules.group_cen_contigs.output), "{sm}_{hap}_{chr}.tsv")
+    output:
+        os.path.join("output", "reoriented", "reoriented_{sm}_{hap}_{chr}.fa")
+    conda:
+        "env/general.yaml"
+    log:
+        "logs/reorient_contigs_{sm}_{hap}_{chr}.log"
+    shell:
+        """
+        awk '{{ if ($6 == "forward") {{ print $2 }}}}' {input} | xargs cat >> {output} 2> {log}
+        awk '{{ if ($6 == "reverse") {{ print $2 }}}}' {input} | xargs seqtk seq -r >> {output} 2>> {log}
+        """
+
+
+def get_group_contigs(wc):
+    res = checkpoints.group_cen_contigs.get(**wc).output[0]
+
+    grp_wc = glob_wildcards(os.path.join(str(res), "{sm}_{hap}_{chr}.tsv"))
+
+    return expand(
+        rules.stringdecomposer.output,
+        zip,
+        sm=grp_wc.sm,
+        hap=grp_wc.hap,
+        chr=grp_wc.chr
+    )
+
+
+rule stringdecomposer:
+    input:
+        monomers="data/monomers/chm13_{chr}_monomers.fa",
+        fa=rules.reorient_contigs_for_strdec.output,
+    output:
+        os.path.join("output", "stringdecomposer", "{sm}_{hap}_{chr}.tsv")
+    conda:
+        "env/stringdecomposer.yaml"
+    benchmark:
+        "benchmarks/stringdecomposer_{sm}_{hap}_{chr}.tsv"
+    log:
+        "logs/stringdecomposer_{sm}_{hap}_{chr}.log",
+    shell:
+        """
+        stringdecomposer \
+        {input.fa} \
+        {input.monomers} \
+        --out-file {output} 2> {log}
+        """
+
+# TODO: Generate config file.
+
+rule run_group_str_dec:
+    input:
+        get_group_contigs
+    output:
+        touch("group.done")
+
+
+rule all:
+    input:
+        rules.index_cen_ctg_fa.output,
+        rules.group_cen_contigs.output,
+        rules.run_group_str_dec.output
+    default_target: True

@@ -2,5 +2,6 @@
 # ex. sample_chr1_(h1|h2|haplotype1|haplotype2)ctg
 # ex. sample_chr10_(mat|pat)ctg
 # All fa should be indexed.
-contigs: "cen_ctgs.tsv"
+cen_contigs: "cen_ctgs.tsv"
 misassemblies: "cen_ctgs_misassemblies.tsv"
+assembly_fai: "assembly_fai.tsv"
