@@ -5,8 +5,10 @@ import numpy as np
 import biotite.sequence as seq
 import biotite.sequence.align as align
 
+from typing import Generator
 from collections import defaultdict
 
+from intervaltree import IntervalTree, Interval
 
 DEF_STRDEC_COLS = [
     "cen",
@@ -22,6 +24,18 @@ DEF_STRDEC_COLS = [
     "homo_sec_identity",
     "reliability",
 ]
+
+DEF_MISASM_COLS = ["ctg", "start", "stop", "type"]
+
+
+def read_misassemblies(
+    input_file: str, *, contig: str
+) -> Generator[Interval, None, None]:
+    df = pl.read_csv(
+        input_file, has_header=False, new_columns=DEF_MISASM_COLS, separator="\t"
+    )
+    for m in df.filter(pl.col("ctg") == contig).iter_rows(named=True):
+        yield Interval(m["start"], m["stop"])
 
 
 def format_strdec_data(
@@ -55,7 +69,15 @@ def format_strdec_data(
         .cast({"cen_start": pl.Int64, "cen_stop": pl.Int64})
         # Merge monomer classification and its estimated sequence identity into an id.
         .with_columns(
-            mon_id=pl.concat_str([pl.col("monomer", "identity")], separator="_")
+            # First row
+            start=pl.when(pl.col("orientation") == "-")
+            .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("start"))
+            .otherwise(pl.col("start") + pl.col("cen_start")),
+            # Last row
+            stop=pl.when(pl.col("orientation") == "-")
+            .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("stop"))
+            .otherwise(pl.col("stop") + pl.col("cen_start")),
+            mon_id=pl.concat_str([pl.col("monomer", "identity")], separator="_"),
         )
         .select(
             "cen",
@@ -116,20 +138,22 @@ def main():
         args.infiles,
         separator="\t",
         has_header=True,
-        new_columns=["strdec", "misasm", "group", "ort", "ctg_len"],
+        new_columns=["ctg", "strdec", "misasm", "group", "ort", "ctg_len"],
         dtypes={"group": pl.String},
     )
-    dfs = []
+    dfs: list[pl.DataFrame] = []
     grp_idxs = defaultdict(list)
 
-    # misassemblies = []
+    misassemblies = defaultdict(IntervalTree)
     for i, f in enumerate(df_cen_files.iter_rows(named=True)):
         df = format_strdec_data(
             f["strdec"], orientation=f["ort"], contig_length=f["ctg_len"]
         )
         dfs.append(df)
-
-        # TODO: Store misassemblies.
+        breakpoint()
+        # Store misassemblies by contig.
+        for misasm in read_misassemblies(f["misasm"], contig=f["ctg"]):
+            misassemblies[f["ctg"]].add(misasm)
 
         grp_idxs[f["group"]].append(i)
 
@@ -167,21 +191,32 @@ def main():
     )
     concensus_rows = []
 
+    # TODO: How to handle building consensus? If fail to find match that is correctly assembled, should truncate sequence?
     for trace in aln.trace:
         matches = np.where(trace != -1)[0]
+        filtered_matches = []
+        # Filter monomers that are in misassembled regions.
+        for m in matches:
+            m: int
+            row = dfs[m].row(trace[m])
+
+            if misassemblies[row[0]].overlaps(row[5], row[6]):
+                continue
+            filtered_matches.append(m)
+
         # Check if any base group in matches.
-        seq_i_idx = np.where(np.isin(matches, base_group_idxs))[0]
+        seq_i_idx = np.where(np.isin(filtered_matches, base_group_idxs))[0]
 
         if len(seq_i_idx) != 0:
-            new_seq_i = matches[seq_i_idx[0]]
+            new_seq_i = filtered_matches[seq_i_idx[0]]
         # Just take first one if not.
-        elif len(matches) != 0:
+        elif len(filtered_matches) != 0 or len(filtered_matches) == 0:
             new_seq_i = matches[0]
         else:
             continue
+
         trace_idx = trace[new_seq_i]
         row = dfs[new_seq_i].row(trace_idx)
-        # TODO: Check for misassembly.
         concensus_rows.append(row)
 
     df_concensus = (
@@ -231,18 +266,12 @@ def main():
         start=pl.when(pl.col("index") == 0)
         # Start of contig.
         .then(pl.lit(0))
-        # Adjust for orientation
-        .when(pl.col("orientation") == "-")
-        .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("start"))
-        .otherwise(pl.col("start") + pl.col("cen_start").fill_null(0)),
+        .otherwise(pl.col("start")),
         # Last row
         stop=pl.when(pl.col("index") == df_summary.shape[0] - 1)
         # Stop of contig.
         .then(pl.col("ctg_length"))
-        # Adjust for orientation
-        .when(pl.col("orientation") == "-")
-        .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("stop"))
-        .otherwise(pl.col("stop") + pl.col("cen_start").fill_null(0)),
+        .otherwise(pl.col("stop")),
     )
 
     df_summary = (

@@ -103,7 +103,9 @@ def main():
         df_ctg_data.join(df_misasm_data, on=["chromosome", "group"], how="left")
         .join(pl.from_dict(cen_strdec_files), on=["ctg"], how="left")
         .with_columns(pl.col("orientation").replace({"forward": "+", "reverse": "-"}))
-        .select("strdec_path", "misasm_path", "group", "orientation", "ctg_length")
+        .select(
+            "ctg", "strdec_path", "misasm_path", "group", "orientation", "ctg_length"
+        )
     )
     df_ctg_data.write_csv(args.output_cfg, separator="\t", include_header=True)
 

@@ -7,3 +7,4 @@ dependencies:
     - polars
     - numpy
     - biotite
+    - intervaltree
