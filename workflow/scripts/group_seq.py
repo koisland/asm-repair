@@ -23,8 +23,9 @@ def read_cens_info(infile: str) -> pl.DataFrame:
         .unnest("ctg_coord")
         .rename({"field_0": "ctg_name"})
         # Open fasta index
-        for r in pl.read_csv(infile, separator="\t", has_header=True)
-        .iter_rows(named=True)
+        for r in pl.read_csv(infile, separator="\t", has_header=True).iter_rows(
+            named=True
+        )
     ).collect()
     return (
         df_cens_info.with_columns(
@@ -70,13 +71,20 @@ def read_misassembled_cens(infile: str) -> pl.Series:
         .unique()
     )
 
+
 def read_assembly_contig_lengths(infile: str) -> pl.DataFrame:
     return (
         pl.concat(
             pl.scan_csv(
                 r["path"],
                 separator="\t",
-                new_columns=["ctg_name", "ctg_length", "offset", "linebases", "linewidth"],
+                new_columns=[
+                    "ctg_name",
+                    "ctg_length",
+                    "offset",
+                    "linebases",
+                    "linewidth",
+                ],
             )
             for r in pl.read_csv(infile, separator="\t", has_header=True).iter_rows(
                 named=True
@@ -86,18 +94,35 @@ def read_assembly_contig_lengths(infile: str) -> pl.DataFrame:
         .collect()
     )
 
+
 def main():
     ap = argparse.ArgumentParser(description="")
-    ap.add_argument("-i", "--infile", required=True, help="Centromere contigs fastas by chromosome, orientation, and group.")
-    ap.add_argument("-m", "--misassemblies", required=True, help="Misassemblies bed files by chromosome and group.")
-    ap.add_argument("-a", "--assembly_faidx", required=True, help="Assembly faidxs by group.")
-    ap.add_argument("-o", "--output_dir", default="output", help="Output dir with contigs")
+    ap.add_argument(
+        "-i",
+        "--infile",
+        required=True,
+        help="Centromere contigs fastas by chromosome, orientation, and group.",
+    )
+    ap.add_argument(
+        "-m",
+        "--misassemblies",
+        required=True,
+        help="Misassemblies bed files by chromosome and group.",
+    )
+    ap.add_argument(
+        "-a", "--assembly_faidx", required=True, help="Assembly faidxs by group."
+    )
+    ap.add_argument(
+        "-o", "--output_dir", default="output", help="Output dir with contigs"
+    )
 
     args = ap.parse_args()
 
     srs_misassembled_cens = read_misassembled_cens(args.misassemblies)
     df_ctg_lengths = read_assembly_contig_lengths(args.assembly_faidx)
-    df_cens_info = read_cens_info(args.infile).join(df_ctg_lengths, on="ctg_name", how="left")
+    df_cens_info = read_cens_info(args.infile).join(
+        df_ctg_lengths, on="ctg_name", how="left"
+    )
 
     os.makedirs(args.output_dir)
 
@@ -112,16 +137,14 @@ def main():
             continue
 
         # Filter group if no misassemblies.
-        if df_grp.get_column("ctg_name").is_in(srs_misassembled_cens).all():
+        if not df_grp.get_column("ctg_name").is_in(srs_misassembled_cens).any():
             continue
-        
+
         df_grp.drop_in_place("ctg_name")
         df_grp.write_csv(
-            os.path.join(
-                args.output_dir, f"{'_'.join(grp_name)}.tsv"
-            ),
+            os.path.join(args.output_dir, f"{'_'.join(grp_name)}.tsv"),
             separator="\t",
-            include_header=False
+            include_header=False,
         )
 
 

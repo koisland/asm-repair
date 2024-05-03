@@ -1,0 +1,5 @@
+chromosome	orientation	group	path
+chr1	forward	hifiasm	data/platinum_genomes/hifiasm_seq/chr1_contigs.fwd.ALR.fa
+chr1	forward	verkko	data/platinum_genomes/verkko_seq/chr1_contigs.fwd.ALR.fa
+chr1	reverse	hifiasm	data/platinum_genomes/hifiasm_seq/chr1_contigs.rev.ALR.fa
+chr1	reverse	verkko	data/platinum_genomes/verkko_seq/chr1_contigs.rev.ALR.fa

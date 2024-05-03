@@ -1,7 +1,3 @@
-# TODO: Reorient input list of seqs
-
-# TODO: Run string decomposer
-
 import pandas as pd
 
 
@@ -9,11 +5,6 @@ configfile: "config.yaml"
 
 
 CENS = pd.read_csv(config["cen_contigs"], sep="\t")
-MISASSEMBLIES = pd.read_csv(config["misassemblies"], sep="\t")
-
-CHR = CENS["chromosome"].unique()
-ORT = CENS["orientation"].unique()
-GRP = CENS["group"].unique()
 
 
 # Index fasta if not already done.
@@ -25,7 +16,7 @@ rule index_cen_ctg_fa:
     conda:
         "env/general.yaml"
     log:
-        "logs/index_cen_ctg_fa.log"
+        "logs/index_cen_ctg_fa.log",
     shell:
         """
         for fa in {input}; do
@@ -39,13 +30,13 @@ checkpoint group_cen_contigs:
         fai=rules.index_cen_ctg_fa.output,
         cen_contigs=config["cen_contigs"],
         misassemblies=config["misassemblies"],
-        assembly_faidx=config["assembly_fai"]
+        assembly_faidx=config["assembly_fai"],
     output:
         directory(os.path.join("output", "groups")),
     conda:
         "env/msa.yaml"
     log:
-        "logs/group_cen_contigs.log"
+        "logs/group_cen_contigs.log",
     shell:
         """
         python workflow/scripts/group_seq.py \
@@ -58,13 +49,13 @@ checkpoint group_cen_contigs:
 
 rule reorient_contigs_for_strdec:
     input:
-        os.path.join(str(rules.group_cen_contigs.output), "{sm}_{hap}_{chr}.tsv")
+        os.path.join(str(rules.group_cen_contigs.output), "{sm}_{hap}_{chr}.tsv"),
     output:
-        os.path.join("output", "reoriented", "reoriented_{sm}_{hap}_{chr}.fa")
+        os.path.join("output", "reoriented", "reoriented_{sm}_{hap}_{chr}.fa"),
     conda:
         "env/general.yaml"
     log:
-        "logs/reorient_contigs_{sm}_{hap}_{chr}.log"
+        "logs/reorient_contigs_{sm}_{hap}_{chr}.log",
     shell:
         """
         awk '{{ if ($6 == "forward") {{ print $1,$2 }}}}' {input} | \
@@ -74,26 +65,14 @@ rule reorient_contigs_for_strdec:
         """
 
 
-def get_group_contigs(wc):
-    res = checkpoints.group_cen_contigs.get(**wc).output[0]
-
-    grp_wc = glob_wildcards(os.path.join(str(res), "{sm}_{hap}_{chr}.tsv"))
-
-    return expand(
-        rules.stringdecomposer.output,
-        zip,
-        sm=grp_wc.sm,
-        hap=grp_wc.hap,
-        chr=grp_wc.chr
-    )
-
-
 rule stringdecomposer:
     input:
         monomers="data/monomers/chm13_{chr}_monomers.fa",
         fa=rules.reorient_contigs_for_strdec.output,
     output:
-        os.path.join("output", "stringdecomposer", "{sm}_{hap}_{chr}.tsv")
+        os.path.join("output", "stringdecomposer", "{sm}_{hap}_{chr}.tsv"),
+    params:
+        outfile_prefix=lambda wc, output: os.path.splitext(str(output))[0],
     conda:
         "env/stringdecomposer.yaml"
     benchmark:
@@ -105,21 +84,87 @@ rule stringdecomposer:
         stringdecomposer \
         {input.fa} \
         {input.monomers} \
-        --out-file {output} 2> {log}
+        --out-file {params.outfile_prefix} &> {log}
         """
 
-# TODO: Generate config file.
 
-rule run_group_str_dec:
+rule generate_strdec_aln_config_file:
     input:
-        get_group_contigs
+        strdec_output=rules.stringdecomposer.output,
+        cen_mdata=rules.reorient_contigs_for_strdec.input,
+        misassemblies=config["misassemblies"],
     output:
-        touch("group.done")
+        os.path.join("output", "alignment", "{sm}_{hap}_{chr}_cfg.tsv"),
+    log:
+        "logs/generate_strdec_aln_config_file_{sm}_{hap}_{chr}.log",
+    conda:
+        "env/msa.yaml"
+    shell:
+        """
+        python workflow/scripts/generate_config.py \
+        -i {input.strdec_output} \
+        -c {input.cen_mdata} \
+        -m {input.misassemblies} \
+        -o {output} 2> {log}
+        """
+
+
+rule generate_consensus:
+    input:
+        rules.generate_strdec_aln_config_file.output,
+    output:
+        coord_summary=os.path.join(
+            "output", "alignment", "summary_{sm}_{hap}_{chr}.tsv"
+        ),
+        concensus_strdec_output=os.path.join(
+            "output", "alignment", "concensus_{sm}_{hap}_{chr}.tsv"
+        ),
+    log:
+        "logs/msa_stringdecomposer_{sm}_{hap}_{chr}.log",
+    benchmark:
+        "benchmarks/msa_stringdecomposer_{sm}_{hap}_{chr}.tsv"
+    conda:
+        "env/msa.yaml"
+    params:
+        base_group=config["concensus"]["base_group"],
+        gap_open_penalty=config["concensus"]["gap_open_penalty"],
+        gap_ext_penalty=config["concensus"]["gap_ext_penalty"],
+    shell:
+        """
+        python workflow/scripts/msa.py \
+        -i {input} \
+        -o {output.coord_summary} \
+        -c {output.concensus_strdec_output} \
+        --base_group {params.base_group} \
+        --gap_open_penalty {params.gap_open_penalty} \
+        --gap_ext_penalty {params.gap_ext_penalty} 2> {log}
+        """
+
+
+def final_output(wc):
+    res = checkpoints.group_cen_contigs.get(**wc).output[0]
+
+    grp_wc = glob_wildcards(os.path.join(str(res), "{sm}_{hap}_{chr}.tsv"))
+
+    return expand(
+        rules.generate_consensus.output,
+        zip,
+        sm=grp_wc.sm,
+        hap=grp_wc.hap,
+        chr=grp_wc.chr,
+    )
+
+
+rule run_msa_group_str_dec:
+    input:
+        final_output,
+    output:
+        touch(os.path.join("output", "alignment", "stringdecomposer.done")),
 
 
 rule all:
     input:
         rules.index_cen_ctg_fa.output,
         rules.group_cen_contigs.output,
-        rules.run_group_str_dec.output
+        rules.run_msa_group_str_dec.output,
     default_target: True
