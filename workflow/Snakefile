@@ -67,8 +67,10 @@ rule reorient_contigs_for_strdec:
         "logs/reorient_contigs_{sm}_{hap}_{chr}.log"
     shell:
         """
-        awk '{{ if ($6 == "forward") {{ print $2 }}}}' {input} | xargs cat >> {output} 2> {log}
-        awk '{{ if ($6 == "reverse") {{ print $2 }}}}' {input} | xargs seqtk seq -r >> {output} 2>> {log}
+        awk '{{ if ($6 == "forward") {{ print $1,$2 }}}}' {input} | \
+            xargs -n 2 bash -c 'seqtk subseq $1 <(echo $0)' >> {output} 2> {log}
+        awk '{{ if ($6 == "reverse") {{ print $1,$2 }}}}' {input} | \
+            xargs -n 2 bash -c 'seqtk subseq $1 <(echo $0) | seqtk seq -r' >> {output} 2> {log}
         """
 
 
