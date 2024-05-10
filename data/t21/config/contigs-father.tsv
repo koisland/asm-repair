@@ -1,3 +1,3 @@
-stringdecomposer	misassemblies	group	orientation	contig_length
-./data/t21/stringdecomposer/father-contig-0001173.tsv	-	0	-	12993130
-./data/t21/stringdecomposer/father-h2tg000036l.tsv	-	1	-	40523572
+ctg	stringdecomposer	misassemblies	group	orientation	contig_length
+contig-0001173:10738208-12616831	./data/t21/stringdecomposer/father-contig-0001173.tsv	./data/t21/misassemblies/father_misassemblies_verkko.bed	0	-	12993130
+h2tg000036l:33595079-35500547	./data/t21/stringdecomposer/father-h2tg000036l.tsv	./data/t21/misassemblies/father_misassemblies_hifiasm.bed	1	-	40523572

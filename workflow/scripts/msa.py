@@ -1,11 +1,13 @@
 import sys
+import pprint
+import logging
 import argparse
 import polars as pl
 import numpy as np
 import biotite.sequence as seq
 import biotite.sequence.align as align
 
-from typing import Generator
+from typing import Iterator
 from collections import defaultdict
 
 from intervaltree import IntervalTree, Interval
@@ -26,16 +28,53 @@ DEF_STRDEC_COLS = [
 ]
 
 DEF_MISASM_COLS = ["ctg", "start", "stop", "type"]
+DEF_SEQ_IDEN_THR = 85
+DEF_NUM_MONS_BELOW_SEQ_IDEN_THR = 5
+
+# Create logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Create console handler and set level to DEBUG
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+
+# Create formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Add formatter to console handler
+console_handler.setFormatter(formatter)
+
+# Add console handler to logger
+logger.addHandler(console_handler)
 
 
 def read_misassemblies(
-    input_file: str, *, contig: str
-) -> Generator[Interval, None, None]:
-    df = pl.read_csv(
-        input_file, has_header=False, new_columns=DEF_MISASM_COLS, separator="\t"
-    )
+    input_file: str, *, contig: str, orientation: str
+) -> Iterator[Interval]:
+    try:
+        df = (
+            pl.read_csv(
+                input_file, has_header=False, new_columns=DEF_MISASM_COLS, separator="\t"
+            )
+            .with_columns(
+                ctg_name_coords=pl.col("ctg").str.split_exact(by=":", n=1),
+            )
+            .unnest("ctg_name_coords")
+            .rename({"field_0": "ctg_name", "field_1": "coords"})
+            .with_columns(coord_pair=pl.col("coords").str.split_exact(by="-", n=1))
+            .unnest("coord_pair")
+            .rename({"field_0": "ctg_start", "field_1": "ctg_stop"})
+            .cast({"ctg_start": pl.Int64, "ctg_stop": pl.Int64})
+        )
+    except pl.exceptions.NoDataError:
+        return None
+
     for m in df.filter(pl.col("ctg") == contig).iter_rows(named=True):
-        yield Interval(m["start"], m["stop"])
+        if orientation == "+":
+            yield Interval(m["start"] - m["ctg_start"], m["stop"] - m["ctg_start"])
+        else:
+            yield Interval(m["ctg_stop"] - m["stop"], m["ctg_stop"] - m["start"])
 
 
 def format_strdec_data(
@@ -69,14 +108,6 @@ def format_strdec_data(
         .cast({"cen_start": pl.Int64, "cen_stop": pl.Int64})
         # Merge monomer classification and its estimated sequence identity into an id.
         .with_columns(
-            # First row
-            start=pl.when(pl.col("orientation") == "-")
-            .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("start"))
-            .otherwise(pl.col("start") + pl.col("cen_start")),
-            # Last row
-            stop=pl.when(pl.col("orientation") == "-")
-            .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("stop"))
-            .otherwise(pl.col("stop") + pl.col("cen_start")),
             mon_id=pl.concat_str([pl.col("monomer", "identity")], separator="_"),
         )
         .select(
@@ -129,8 +160,22 @@ def main():
         type=int,
         default=0,
     )
+    ap.add_argument(
+        "--seq_iden_thr",
+        help="Sequence identity threshold for filtering monomers. Low values signal the end of the centromere.",
+        type=int,
+        default=85,
+    )
+    ap.add_argument(
+        "--num_mons_below_seq_iden_thr",
+        help="Number of monomers below seq_iden_thr required to stop building consensus.",
+        type=int,
+        default=5,
+    )
 
     args = ap.parse_args()
+
+    logger.info(f"Using arguments:\n{pprint.pformat(vars(args))}")
 
     # Read input file with filename and metadata.
     # Group is string to allow arbitrary name.
@@ -150,9 +195,8 @@ def main():
             f["strdec"], orientation=f["ort"], contig_length=f["ctg_len"]
         )
         dfs.append(df)
-        breakpoint()
         # Store misassemblies by contig.
-        for misasm in read_misassemblies(f["misasm"], contig=f["ctg"]):
+        for misasm in read_misassemblies(f["misasm"], contig=f["ctg"], orientation=f["ort"]):
             misassemblies[f["ctg"]].add(misasm)
 
         grp_idxs[f["group"]].append(i)
@@ -181,6 +225,7 @@ def main():
     matrix = align.SubstitutionMatrix(
         mapping_alphabet, mapping_alphabet, np.identity(len(mapping_alphabet))
     )
+    logger.info(f"Performing a MSA of {len(seqs)} StringDecomposer monomer sequences...")
     # https://www.biotite-python.org/apidoc/biotite.sequence.align.align_multiple.html#biotite.sequence.align.align_multiple
     aln, order, tree, dst_mtx = align.align_multiple(
         [seq.GeneralSequence(alphabet=mapping_alphabet, sequence=s) for s in seqs],
@@ -190,8 +235,8 @@ def main():
         terminal_penalty=False,
     )
     concensus_rows = []
-
-    # TODO: How to handle building consensus? If fail to find match that is correctly assembled, should truncate sequence?
+    num_mons_below_thresh = 0
+    
     for trace in aln.trace:
         matches = np.where(trace != -1)[0]
         filtered_matches = []
@@ -200,23 +245,34 @@ def main():
             m: int
             row = dfs[m].row(trace[m])
 
+            # Check for overlap with misassembled region.
             if misassemblies[row[0]].overlaps(row[5], row[6]):
                 continue
             filtered_matches.append(m)
 
-        # Check if any base group in matches.
+        # Check if any base group in correctly assembled monomers.
         seq_i_idx = np.where(np.isin(filtered_matches, base_group_idxs))[0]
-
         if len(seq_i_idx) != 0:
             new_seq_i = filtered_matches[seq_i_idx[0]]
-        # Just take first one if not.
-        elif len(filtered_matches) != 0 or len(filtered_matches) == 0:
+        # Just take first non-misassembled monomer if base group monomer not found.
+        elif len(filtered_matches) != 0:
+            new_seq_i = filtered_matches[0]
+        # If no correctly assembled monomer found, don't repair.
+        elif len(matches) != 0:
             new_seq_i = matches[0]
         else:
             continue
 
         trace_idx = trace[new_seq_i]
         row = dfs[new_seq_i].row(trace_idx)
+
+        # Check row doesn't fall below sequence identity threshold.
+        if row[7] < args.seq_iden_thr:
+            num_mons_below_thresh += 1
+        # Stop building consensus if number of monomers below sequence identity threshold met.
+        if num_mons_below_thresh == args.num_mons_below_seq_iden_thr:
+            break
+
         concensus_rows.append(row)
 
     df_concensus = (
@@ -261,17 +317,22 @@ def main():
         .drop("breaks")
         .with_row_index()
     )
+        
     df_summary = df_summary.with_columns(
-        # First row
         start=pl.when(pl.col("index") == 0)
-        # Start of contig.
         .then(pl.lit(0))
-        .otherwise(pl.col("start")),
-        # Last row
+        .otherwise(
+            pl.when(pl.col("orientation") == "-")
+            .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("start"))
+            .otherwise(pl.col("start") + pl.col("cen_start"))
+        ),
         stop=pl.when(pl.col("index") == df_summary.shape[0] - 1)
-        # Stop of contig.
         .then(pl.col("ctg_length"))
-        .otherwise(pl.col("stop")),
+        .otherwise(
+            pl.when(pl.col("orientation") == "-")        
+            .then(pl.col("ctg_length") - pl.col("cen_stop") + pl.col("stop"))
+            .otherwise(pl.col("stop") + pl.col("cen_start"))
+        )
     )
 
     df_summary = (

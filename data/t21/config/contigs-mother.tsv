@@ -1,4 +1,4 @@
-stringdecomposer	misassemblies	group	orientation	contig_length
-./data/t21/stringdecomposer/mother-contig-0002362.tsv	-	0	-	2444692
-./data/t21/stringdecomposer/mother-h1tg000006l.tsv	-	1	+	8881307
-./data/t21/stringdecomposer/mother-h1tg000045l.tsv	-	1	-	31541424
+ctg	stringdecomposer	misassemblies	group	orientation	contig_length
+contig-0002362:538130-2444692	./data/t21/stringdecomposer/mother-contig-0002362.tsv	./data/t21/misassemblies/mother_misassemblies_verkko.bed	0	-	2444692
+h1tg000006l:8484742-8881306	./data/t21/stringdecomposer/mother-h1tg000006l.tsv	./data/t21/misassemblies/mother_misassemblies_hifiasm.bed	1	+	8881307
+h1tg000045l:30112190-31541417	./data/t21/stringdecomposer/mother-h1tg000045l.tsv	./data/t21/misassemblies/mother_misassemblies_hifiasm.bed	1	-	31541424
